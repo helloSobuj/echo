@@ -12,6 +12,7 @@ import { ViewController } from '@/components/app/view-controller';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
+import { loadMcpServersFromStorage } from '@/lib/mcp-connectors';
 import { getSandboxTokenSource } from '@/lib/utils';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
@@ -30,6 +31,24 @@ interface AppProps {
   appConfig: AppConfig;
 }
 
+function createEchoTokenSource(appConfig: AppConfig) {
+  return TokenSource.custom(async () => {
+    const roomConfig = appConfig.agentName
+      ? { agents: [{ agent_name: appConfig.agentName }] }
+      : undefined;
+    const mcp_servers = loadMcpServersFromStorage();
+    const res = await fetch('/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_config: roomConfig, mcp_servers }),
+    });
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+    return await res.json();
+  });
+}
+
 function createTokenSource(appConfig: AppConfig) {
   // Optional sandbox path for local experimentation
   if (USE_SANDBOX) {
@@ -41,8 +60,7 @@ function createTokenSource(appConfig: AppConfig) {
     }
   }
 
-  // Default: secure Next.js /api/token (local + production)
-  return TokenSource.endpoint('/api/token');
+  return createEchoTokenSource(appConfig);
 }
 
 export function App({ appConfig }: AppProps) {

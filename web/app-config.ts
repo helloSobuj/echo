@@ -38,16 +38,16 @@ export interface AppConfig {
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'Echo',
   pageTitle: 'Echo — Personal Voice Assistant',
-  pageDescription: 'Talk to your personal LiveKit voice assistant',
+  pageDescription: 'Talk to your personal voice assistant',
 
   supportsChatInput: true,
   supportsVideoInput: true,
   supportsScreenShare: true,
   isPreConnectBufferEnabled: true,
 
-  logo: '/lk-logo.svg',
+  logo: '/echo-logo.svg',
   accent: '#0d9488',
-  logoDark: '/lk-logo-dark.svg',
+  logoDark: '/echo-logo-dark.svg',
   accentDark: '#2dd4bf',
   startButtonText: 'Start conversation',
 

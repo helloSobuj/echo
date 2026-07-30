@@ -107,8 +107,9 @@ export default async function Image() {
 
   const pageTitle = cleanPageTitle(appConfig.pageTitle);
   const logoUri = appConfig.logoDark || appConfig.logo;
-  const isLogoUriLocal = logoUri.includes('lk-logo');
-  const wordmarkUri = logoUri === APP_CONFIG_DEFAULTS.logoDark ? 'public/lk-wordmark.svg' : logoUri;
+  const isLogoUriLocal = logoUri.includes('echo-logo') || logoUri.includes('lk-logo');
+  const wordmarkUri =
+    logoUri === APP_CONFIG_DEFAULTS.logoDark ? 'public/echo-logo-dark.svg' : logoUri;
 
   // Load fonts - use file system in dev, fetch in production
   let commitMonoData: ArrayBuffer | undefined;
@@ -134,7 +135,7 @@ export default async function Image() {
   // logo
   const { base64: logoSrcBase64, dimensions: logoDimensions } = await getImageData(
     logoUri,
-    'public/lk-logo-dark.svg'
+    'public/echo-logo-dark.svg'
   );
   const logoSize = scaleImageSize(logoDimensions, 24);
 

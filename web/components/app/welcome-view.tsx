@@ -48,25 +48,10 @@ export const WelcomeView = ({
         </Button>
 
         <p className="text-muted-foreground mt-4 max-w-sm text-xs leading-5">
-          Tip: start the Python agent with <code className="font-mono">lk agent dev</code> before
-          connecting.
+          Tip: make sure the Echo agent is running before connecting. Open Settings to add MCP
+          connectors.
         </p>
       </section>
-
-      <div className="fixed bottom-5 left-0 flex w-full items-center justify-center px-4">
-        <p className="text-muted-foreground max-w-prose text-center text-xs leading-5 md:text-sm">
-          Built with{' '}
-          <a
-            target="_blank"
-            rel="noopener noreferrer"
-            href="https://docs.livekit.io/agents/start/voice-ai/"
-            className="underline"
-          >
-            LiveKit Agents
-          </a>
-          .
-        </p>
-      </div>
     </div>
   );
 };

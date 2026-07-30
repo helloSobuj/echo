@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from livekit.agents import AgentSession, TurnHandlingOptions, inference
 
@@ -27,7 +28,7 @@ def _vision_enabled() -> bool:
     return os.getenv("VISION_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def build_session() -> AgentSession:
+def build_session(*, tools: list[Any] | None = None) -> AgentSession:
     """Build an AgentSession using Inference, BYOK, or OpenRouter+Gemini."""
     mode = get_model_mode()
     # Preemptive replies start before on_user_turn_completed, so they never see
@@ -39,6 +40,10 @@ def build_session() -> AgentSession:
     )
     if vision:
         logger.info("VISION_ENABLED — disabling preemptive generation so frames can attach")
+
+    extra: dict[str, Any] = {}
+    if tools:
+        extra["tools"] = tools
 
     if mode == "byok":
         logger.info("MODEL_MODE=byok — using Deepgram, OpenAI, and Cartesia plugins")
@@ -52,6 +57,7 @@ def build_session() -> AgentSession:
                 voice=os.getenv("CARTESIA_VOICE_ID", CARTESIA_DEFAULT_VOICE),
             ),
             turn_handling=turn_handling,
+            **extra,
         )
 
     if mode == "openrouter":
@@ -72,6 +78,7 @@ def build_session() -> AgentSession:
                 voice=os.getenv("INFERENCE_TTS_VOICE", "Ashley"),
             ),
             turn_handling=turn_handling,
+            **extra,
         )
 
     if mode != "inference":
@@ -86,4 +93,5 @@ def build_session() -> AgentSession:
             voice=os.getenv("INFERENCE_TTS_VOICE", "Ashley"),
         ),
         turn_handling=turn_handling,
+        **extra,
     )

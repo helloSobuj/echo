@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/admin-auth';
-import { getMaskedConfig, updateConfig } from '@/lib/agent-config';
+import { getMaskedConfig, readMcpServers, updateConfig } from '@/lib/agent-config';
+import { sanitizeMcpServers } from '@/lib/mcp-connectors';
 
 export async function GET() {
   if (!(await isAuthenticated())) {
@@ -8,7 +9,8 @@ export async function GET() {
   }
 
   const masked = getMaskedConfig();
-  return NextResponse.json(masked);
+  const mcp_servers = readMcpServers();
+  return NextResponse.json({ ...masked, mcp_servers });
 }
 
 export async function POST(req: Request) {
@@ -21,6 +23,7 @@ export async function POST(req: Request) {
       api_key?: string;
       enabled?: boolean;
     };
+    mcp_servers?: unknown;
   };
   try {
     body = await req.json();
@@ -42,13 +45,28 @@ export async function POST(req: Request) {
     }
   }
 
+  let mcpServers;
+  if (body.mcp_servers !== undefined) {
+    try {
+      mcpServers = sanitizeMcpServers(body.mcp_servers);
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : 'Invalid mcp_servers');
+    }
+  }
+
   if (errors.length > 0) {
     return NextResponse.json({ error: errors.join('; ') }, { status: 400 });
   }
 
   try {
-    const result = updateConfig(body);
-    return NextResponse.json(result.masked);
+    const result = updateConfig({
+      tavily: body.tavily,
+      mcp_servers: mcpServers,
+    });
+    return NextResponse.json({
+      ...result.masked,
+      mcp_servers: readMcpServers(),
+    });
   } catch (err) {
     const message =
       err instanceof Error

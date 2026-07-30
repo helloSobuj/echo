@@ -9,6 +9,12 @@ interface TavilyStatus {
   enabled: boolean;
 }
 
+interface McpStatus {
+  configured: boolean;
+  count: number;
+  path: string;
+}
+
 interface StorageStatus {
   writable: boolean;
   mode: 'file' | 'readonly';
@@ -18,8 +24,20 @@ interface StorageStatus {
 
 interface ConfigStatus {
   tavily: TavilyStatus;
+  mcp: McpStatus;
   storage: StorageStatus;
+  mcp_servers?: unknown[];
 }
+
+const MCP_EXAMPLE = `[
+  {
+    "id": "example",
+    "name": "Example",
+    "url": "https://example.com/sse",
+    "enabled": true,
+    "headers": {}
+  }
+]`;
 
 export default function AdminPage() {
   const [isAuthed, setIsAuthed] = useState(false);
@@ -28,7 +46,9 @@ export default function AdminPage() {
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [tavilyKey, setTavilyKey] = useState('');
   const [tavilyEnabled, setTavilyEnabled] = useState(true);
+  const [mcpJson, setMcpJson] = useState('[]');
   const [saving, setSaving] = useState(false);
+  const [savingMcp, setSavingMcp] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [saveOk, setSaveOk] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -44,6 +64,7 @@ export default function AdminPage() {
         const data = await res.json();
         setConfig(data);
         setTavilyEnabled(data.tavily.enabled);
+        setMcpJson(JSON.stringify(data.mcp_servers ?? [], null, 2));
         setIsAuthed(true);
       } else if (res.status === 401) {
         setIsAuthed(false);
@@ -125,6 +146,35 @@ export default function AdminPage() {
     }
   }
 
+  async function handleSaveMcp() {
+    setSavingMcp(true);
+    setSaveMessage('');
+    setSaveOk(false);
+    try {
+      const parsed = JSON.parse(mcpJson);
+      const res = await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcp_servers: parsed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setConfig(data);
+        setMcpJson(JSON.stringify(data.mcp_servers ?? [], null, 2));
+        setSaveOk(true);
+        setSaveMessage('MCP defaults saved to agent/data/mcp_servers.json.');
+      } else {
+        setSaveOk(false);
+        setSaveMessage(typeof data.error === 'string' ? data.error : 'Failed to save MCP defaults.');
+      }
+    } catch {
+      setSaveOk(false);
+      setSaveMessage('MCP JSON must be a valid array.');
+    } finally {
+      setSavingMcp(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -190,15 +240,15 @@ export default function AdminPage() {
         <div className="bg-muted/40 mb-6 rounded-xl border p-4 text-sm leading-6">
           <p className="font-medium">Production note</p>
           <p className="text-muted-foreground mt-1">
-            This Vercel deployment cannot save keys to disk (read-only filesystem). Tavily for voice
-            search is already configured on the LiveKit agent via{' '}
-            <code className="font-mono text-xs">TAVILY_API_KEY</code> secret — you can talk to Echo
-            and ask it to search the web without saving here.
+            This Vercel deployment cannot save keys to disk (read-only filesystem). Configure agent
+            secrets instead:{' '}
+            <code className="font-mono text-xs">TAVILY_API_KEY</code>,{' '}
+            <code className="font-mono text-xs">MCP_SERVERS</code>.
           </p>
           <p className="text-muted-foreground mt-2">
-            To change the key later, run locally:{' '}
+            Example:{' '}
             <code className="font-mono text-xs">
-              lk agent update-secrets --overwrite --secrets TAVILY_API_KEY=tvly-...
+              lk agent update-secrets --overwrite --secrets MCP_SERVERS=&apos;[...]&apos;
             </code>
           </p>
         </div>
@@ -221,7 +271,7 @@ export default function AdminPage() {
               />
               <span className="text-muted-foreground text-sm">
                 {readonly
-                  ? 'Set on LiveKit agent'
+                  ? 'Set on agent secrets'
                   : config?.tavily.configured
                     ? 'Configured'
                     : 'Not set'}
@@ -246,7 +296,7 @@ export default function AdminPage() {
                   className="bg-background focus-visible:border-ring focus-visible:ring-ring/50 flex-1 rounded-md border px-3 py-2 text-sm transition-colors outline-none focus-visible:ring-2 disabled:opacity-50"
                   placeholder={
                     readonly
-                      ? 'Managed via LiveKit agent secrets'
+                      ? 'Managed via agent secrets'
                       : config?.tavily.configured
                         ? 'Leave blank to keep existing key'
                         : 'Paste your Tavily API key'
@@ -294,7 +344,7 @@ export default function AdminPage() {
           </div>
 
           <div className="mt-6 flex items-center justify-end gap-3">
-            {saveMessage && (
+            {saveMessage && !savingMcp && (
               <span
                 className={`max-w-md text-right text-sm ${
                   saveOk ? 'text-green-500' : 'text-destructive'
@@ -305,6 +355,63 @@ export default function AdminPage() {
             )}
             <Button onClick={handleSave} disabled={saving || readonly}>
               {saving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </section>
+
+        <section className="bg-card rounded-xl border p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">MCP defaults</h2>
+              <p className="text-muted-foreground text-sm">
+                Admin-default MCP servers for every Echo session. Users can still add personal
+                connectors in Settings.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex size-2 rounded-full ${
+                  config?.mcp.configured ? 'bg-green-500' : 'bg-muted-foreground/30'
+                }`}
+              />
+              <span className="text-muted-foreground text-sm">
+                {config?.mcp.configured ? `${config.mcp.count} configured` : 'None'}
+              </span>
+            </div>
+          </div>
+
+          <Separator className="my-4" />
+
+          <div className="space-y-3 text-sm">
+            <p className="text-muted-foreground leading-6">
+              In production, set the agent secret <code className="font-mono text-xs">MCP_SERVERS</code>{' '}
+              to a JSON array. Locally you can save to{' '}
+              <code className="font-mono text-xs">agent/data/mcp_servers.json</code>.
+            </p>
+            <pre className="bg-muted/50 overflow-x-auto rounded-lg border p-3 font-mono text-xs leading-5">
+              {MCP_EXAMPLE}
+            </pre>
+            <textarea
+              value={mcpJson}
+              onChange={(e) => setMcpJson(e.target.value)}
+              disabled={readonly}
+              rows={10}
+              className="bg-background focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border px-3 py-2 font-mono text-xs transition-colors outline-none focus-visible:ring-2 disabled:opacity-50"
+            />
+          </div>
+
+          <div className="mt-6 flex items-center justify-end gap-3">
+            {saveMessage && savingMcp === false && saveMessage.includes('MCP') && (
+              <span
+                className={`max-w-md text-right text-sm ${
+                  saveOk ? 'text-green-500' : 'text-destructive'
+                }`}
+              >
+                {saveMessage}
+              </span>
+            )}
+            <Button onClick={handleSaveMcp} disabled={savingMcp || readonly}>
+              {savingMcp ? 'Saving...' : 'Save MCP defaults'}
             </Button>
           </div>
         </section>

@@ -48,6 +48,7 @@ DEFAULT_INSTRUCTIONS = textwrap.dedent(
     - Use list_notes when the user asks what you remember or to read their notes.
     - Use get_current_time when asked for the date or time.
     - Use web_search to find current information from the internet when the user asks about recent events, facts, or anything that may have changed.
+    - External MCP tools may be available depending on configuration. When they are, use them for matching user requests. Never invent tool results.
     - Confirm actions briefly after using a tool.
 
     # Guardrails
