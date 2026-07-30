@@ -31,8 +31,9 @@ DEFAULT_INSTRUCTIONS = textwrap.dedent(
 
     # Vision
     - You can see the user's camera or screen when they share video.
-    - When a visual frame is attached to the user's message, use it to answer questions about what you see.
-    - Describe only what is visible. If you are unsure, say so briefly.
+    - Only use the image attached to the current user message. Treat it as a fresh live view.
+    - Ignore any earlier screenshots or descriptions; the screen may have changed since then.
+    - Describe only what is visible right now. If you are unsure, say so briefly.
     - Do not invent details that are not in the image.
     - If no video is available, say you cannot see yet and ask them to turn on the camera.
 
@@ -114,6 +115,7 @@ class PersonalAssistant(Agent):
 
         self._latest_frame: rtc.VideoFrame | None = None
         self._video_stream: rtc.VideoStream | None = None
+        self._frame_ready = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
 
         super().__init__(
@@ -153,13 +155,19 @@ class PersonalAssistant(Agent):
     async def on_user_turn_completed(
         self, turn_ctx: ChatContext, new_message: ChatMessage
     ) -> None:
-        """Attach the latest camera/screen frame to each user turn for vision LLMs."""
+        """Attach a fresh camera/screen frame; drop older screenshots from context."""
         if not _vision_enabled():
             return
-        if self._latest_frame is None:
+
+        # Old ImageContent in history is the main cause of "seeing" a previous tab.
+        self._strip_prior_images(turn_ctx, keep_message_id=new_message.id)
+
+        frame = await self._capture_fresh_frame()
+        if frame is None:
+            # Persist stripped history even when no frame is available.
+            await self.update_chat_ctx(turn_ctx)
             return
 
-        # Ensure content is a list so we can append an image
         if isinstance(new_message.content, str):
             new_message.content = [new_message.content]
         elif not isinstance(new_message.content, list):
@@ -167,12 +175,43 @@ class PersonalAssistant(Agent):
 
         new_message.content.append(
             ImageContent(
-                image=self._latest_frame,
+                image=frame,
                 inference_width=768,
                 inference_height=768,
             )
         )
-        self._latest_frame = None
+        # Keep history text; drop old screenshots so later turns stay fresh.
+        await self.update_chat_ctx(turn_ctx)
+
+    def _strip_prior_images(
+        self, turn_ctx: ChatContext, keep_message_id: str | None = None
+    ) -> None:
+        """Remove ImageContent from prior messages so only the new frame is used."""
+        for item in turn_ctx.items:
+            if getattr(item, "type", None) != "message":
+                continue
+            if keep_message_id and getattr(item, "id", None) == keep_message_id:
+                continue
+            content = getattr(item, "content", None)
+            if not isinstance(content, list):
+                continue
+            cleaned = [c for c in content if not isinstance(c, ImageContent)]
+            if len(cleaned) != len(content):
+                item.content = cleaned
+
+    async def _capture_fresh_frame(self, timeout: float = 0.75) -> rtc.VideoFrame | None:
+        """Prefer a frame that arrives after the turn ends; fall back to latest."""
+        if self._video_stream is None and self._latest_frame is None:
+            return None
+
+        self._frame_ready.clear()
+        try:
+            await asyncio.wait_for(self._frame_ready.wait(), timeout=timeout)
+        except TimeoutError:
+            # Screen share may be idle; use the most recent buffered frame.
+            pass
+
+        return self._latest_frame
 
     def _create_video_stream(self, track: rtc.Track) -> None:
         if self._video_stream is not None:
@@ -181,11 +220,18 @@ class PersonalAssistant(Agent):
             asyncio.create_task(old.aclose())
 
         self._video_stream = rtc.VideoStream(track)
+        self._frame_ready.clear()
 
         async def read_stream() -> None:
             assert self._video_stream is not None
             async for event in self._video_stream:
-                self._latest_frame = event.frame
+                # Convert to a stable RGB buffer so encoding isn't racing the
+                # video pipeline's recycled frame memory.
+                try:
+                    self._latest_frame = event.frame.convert(rtc.VideoBufferType.RGB24)
+                except Exception:
+                    self._latest_frame = event.frame
+                self._frame_ready.set()
 
         task = asyncio.create_task(read_stream())
         task.add_done_callback(
