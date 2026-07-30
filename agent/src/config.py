@@ -28,12 +28,17 @@ def _vision_enabled() -> bool:
 
 
 def build_session() -> AgentSession:
-    """Build an AgentSession using Inference, BYOK plugins, or OpenRouter+Gemini."""
+    """Build an AgentSession using Inference, BYOK, or OpenRouter+Gemini."""
     mode = get_model_mode()
+    # Preemptive replies start before on_user_turn_completed, so they never see
+    # the attached screen/camera frame. Keep them off whenever vision is enabled.
+    vision = _vision_enabled()
     turn_handling = TurnHandlingOptions(
         turn_detection=inference.TurnDetector(),
-        preemptive_generation={"enabled": True},
+        preemptive_generation={"enabled": not vision},
     )
+    if vision:
+        logger.info("VISION_ENABLED — disabling preemptive generation so frames can attach")
 
     if mode == "byok":
         logger.info("MODEL_MODE=byok — using Deepgram, OpenAI, and Cartesia plugins")
