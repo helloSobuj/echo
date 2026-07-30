@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import textwrap
 from pathlib import Path
 
 from livekit.agents import Agent
 
-from tools import get_current_time, list_notes, save_note
+from tools import get_current_time, list_notes, save_note, web_search
 
 logger = logging.getLogger("agent")
 
@@ -34,6 +35,7 @@ DEFAULT_INSTRUCTIONS = textwrap.dedent(
     - Use save_note to remember something the user asks you to store.
     - Use list_notes when the user asks what you remember or to read their notes.
     - Use get_current_time when asked for the date or time.
+    - Use web_search to find current information from the internet when the user asks about recent events, facts, or anything that may have changed.
     - Confirm actions briefly after using a tool.
 
     # Guardrails
@@ -41,6 +43,24 @@ DEFAULT_INSTRUCTIONS = textwrap.dedent(
     - For medical, legal, or financial topics, give general information only and suggest a professional.
     """
 )
+
+
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "api_config.json"
+
+
+def _has_tavily_key() -> bool:
+    if os.getenv("TAVILY_API_KEY"):
+        return True
+    try:
+        if CONFIG_PATH.exists():
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                tavily = data.get("tavily")
+                if isinstance(tavily, dict) and tavily.get("api_key"):
+                    return True
+    except (json.JSONDecodeError, OSError):
+        pass
+    return False
 
 
 def _load_profile_context() -> str:
@@ -74,7 +94,10 @@ def _load_profile_context() -> str:
 class PersonalAssistant(Agent):
     def __init__(self) -> None:
         instructions = DEFAULT_INSTRUCTIONS + _load_profile_context()
+        tools = [save_note, list_notes, get_current_time]
+        if _has_tavily_key():
+            tools.append(web_search)
         super().__init__(
             instructions=instructions,
-            tools=[save_note, list_notes, get_current_time],
+            tools=tools,
         )

@@ -36,7 +36,7 @@ export function useAgentErrors() {
           typeof r === 'string' &&
           (r.toLowerCase().includes('did not join') ||
             r.toLowerCase().includes('not join') ||
-            r.toLowerCase().includes('agent not')),
+            r.toLowerCase().includes('agent not'))
       );
 
       toastAlert({
@@ -52,38 +52,30 @@ export function useAgentErrors() {
             )}
             {reasons.length === 1 && <p className="w-full">{reasons[0]}</p>}
             {hasAgentNotJoin && (
-              <div className="mt-2 w-full space-y-1 rounded-md bg-background/50 p-2 text-left text-[11px] leading-5">
+              <div className="bg-background/50 mt-2 w-full space-y-1 rounded-md p-2 text-left text-[11px] leading-5">
                 <p className="font-semibold">Troubleshooting checklist:</p>
                 <ol className="list-inside list-decimal pl-1">
                   <li>
                     Run{' '}
-                    <code className="rounded bg-background px-1 font-mono">
-                      lk agent status
-                    </code>{' '}
-                    — confirm the agent shows <span className="font-semibold">Running</span>.
+                    <code className="bg-background rounded px-1 font-mono">lk agent status</code> —
+                    confirm the agent shows <span className="font-semibold">Running</span>.
                   </li>
                   <li>
                     If stopped, redeploy with{' '}
-                    <code className="rounded bg-background px-1 font-mono">
-                      lk agent deploy
-                    </code>
-                    .
+                    <code className="bg-background rounded px-1 font-mono">lk agent deploy</code>.
                   </li>
                   <li>
-                    Verify{' '}
-                    <code className="rounded bg-background px-1 font-mono">
-                      LIVEKIT_URL
-                    </code>
-                    /keys in Vercel env vars belong to the{' '}
-                    <em>same</em> LiveKit Cloud project as the deployed agent.
+                    Verify <code className="bg-background rounded px-1 font-mono">LIVEKIT_URL</code>
+                    /keys in Vercel env vars belong to the <em>same</em> LiveKit Cloud project as
+                    the deployed agent.
                   </li>
                   <li>
                     Check that{' '}
-                    <code className="rounded bg-background px-1 font-mono">
+                    <code className="bg-background rounded px-1 font-mono">
                       AGENT_NAME=echo-agent
                     </code>{' '}
                     matches{' '}
-                    <code className="rounded bg-background px-1 font-mono">
+                    <code className="bg-background rounded px-1 font-mono">
                       @server.rtc_session(agent_name="echo-agent")
                     </code>{' '}
                     in agent.py.

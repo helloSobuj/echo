@@ -12,6 +12,7 @@ dependencies = [
     "livekit-agents[openai,deepgram,cartesia]>=1.6.1",
     "livekit-plugins-ai-coustics~=0.2",
     "python-dotenv",
+    "httpx",
 ]
 
 [dependency-groups]
