@@ -11,6 +11,13 @@ from livekit.plugins import ai_coustics
 
 from assistant import PersonalAssistant
 from config import build_session, get_model_mode
+from mcp_config import (
+    build_mcp_toolsets,
+    collect_user_attributes_from_room,
+    load_admin_mcp_servers,
+    merge_mcp_servers,
+    parse_user_mcp_servers,
+)
 
 logger = logging.getLogger("agent")
 
@@ -34,7 +41,21 @@ async def echo_agent(ctx: JobContext):
         "vision": _vision_enabled(),
     }
 
-    session = build_session()
+    # Connect first so JWT participant attributes (user MCP) are visible.
+    await ctx.connect()
+
+    admin = load_admin_mcp_servers()
+    user = parse_user_mcp_servers(collect_user_attributes_from_room(ctx.room))
+    merged = merge_mcp_servers(admin, user)
+    mcp_tools = build_mcp_toolsets(merged)
+    logger.info(
+        "MCP servers: admin=%s user=%s toolsets=%s",
+        len(admin),
+        len(user),
+        len(mcp_tools),
+    )
+
+    session = build_session(tools=mcp_tools or None)
 
     await session.start(
         agent=PersonalAssistant(),
@@ -48,8 +69,6 @@ async def echo_agent(ctx: JobContext):
             ),
         ),
     )
-
-    await ctx.connect()
 
     await session.generate_reply(
         instructions=(

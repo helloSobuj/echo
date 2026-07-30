@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { AppConfig } from '@/app-config';
+import { McpConnectorsPanel } from '@/components/app/mcp-connectors-panel';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
@@ -26,7 +27,7 @@ export function SettingsPanel({ appConfig }: SettingsPanelProps) {
       </Button>
 
       {open && (
-        <div className="bg-popover text-popover-foreground border-border mt-2 w-72 rounded-xl border p-4 shadow-lg">
+        <div className="bg-popover text-popover-foreground border-border mt-2 max-h-[80vh] w-80 overflow-y-auto rounded-xl border p-4 shadow-lg">
           <h2 className="text-sm font-semibold">Operator settings</h2>
           <p className="text-muted-foreground mt-1 text-xs leading-5">
             Model keys are configured on the agent server, never in the browser.
@@ -47,6 +48,10 @@ export function SettingsPanel({ appConfig }: SettingsPanelProps) {
             Switch to BYOK by setting <code className="font-mono">MODEL_MODE=byok</code> in{' '}
             <code className="font-mono">agent/.env.local</code>. See the project README.
           </p>
+
+          <Separator className="my-4" />
+
+          <McpConnectorsPanel />
 
           <Separator className="my-4" />
 

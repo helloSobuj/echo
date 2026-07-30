@@ -35,7 +35,7 @@ DEFAULT_INSTRUCTIONS = textwrap.dedent(
     - Ignore any earlier screenshots or descriptions; the screen may have changed since then.
     - Describe only what is visible right now. If you are unsure, say so briefly.
     - Do not invent details that are not in the image.
-    - If no video is available, say you cannot see yet and ask them to turn on the camera.
+    - If no image is attached to the current message, say you cannot see yet and ask them to turn on the camera or share their screen.
 
     # Output rules
     - Respond in plain text only. Never use markdown, lists, code, emojis, or symbols.
@@ -48,6 +48,7 @@ DEFAULT_INSTRUCTIONS = textwrap.dedent(
     - Use list_notes when the user asks what you remember or to read their notes.
     - Use get_current_time when asked for the date or time.
     - Use web_search to find current information from the internet when the user asks about recent events, facts, or anything that may have changed.
+    - External MCP tools may be available depending on configuration. When they are, use them for matching user requests. Never invent tool results.
     - Confirm actions briefly after using a tool.
 
     # Guardrails
@@ -114,8 +115,10 @@ class PersonalAssistant(Agent):
             tools.append(web_search)
 
         self._latest_frame: rtc.VideoFrame | None = None
+        self._frame_width: int = 0
+        self._frame_height: int = 0
+        self._frames_received: int = 0
         self._video_stream: rtc.VideoStream | None = None
-        self._frame_ready = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
 
         super().__init__(
@@ -130,13 +133,12 @@ class PersonalAssistant(Agent):
 
         room = get_job_context().room
 
-        # Attach to an already-published remote video track, if any
-        for participant in room.remote_participants.values():
-            for publication in participant.track_publications.values():
-                track = publication.track
-                if track and track.kind == rtc.TrackKind.KIND_VIDEO:
-                    self._create_video_stream(track)
-                    break
+        # Prefer an already-published screen share, otherwise any remote video.
+        existing = self._find_remote_video_track(room)
+        if existing is not None:
+            track, source = existing
+            logger.info("Attaching to existing remote video track (%s)", source)
+            self._create_video_stream(track)
 
         @room.on("track_subscribed")
         def on_track_subscribed(
@@ -150,7 +152,30 @@ class PersonalAssistant(Agent):
                     participant.identity,
                     publication.source,
                 )
-                self._create_video_stream(track)
+                # Screen share should win over camera when both are present.
+                if (
+                    publication.source == rtc.TrackSource.SOURCE_SCREENSHARE
+                    or self._video_stream is None
+                    or self._frames_received == 0
+                ):
+                    self._create_video_stream(track)
+
+    def _find_remote_video_track(
+        self, room: rtc.Room
+    ) -> tuple[rtc.Track, rtc.TrackSource] | None:
+        screen: tuple[rtc.Track, rtc.TrackSource] | None = None
+        camera: tuple[rtc.Track, rtc.TrackSource] | None = None
+        for participant in room.remote_participants.values():
+            for publication in participant.track_publications.values():
+                track = publication.track
+                if not track or track.kind != rtc.TrackKind.KIND_VIDEO:
+                    continue
+                pair = (track, publication.source)
+                if publication.source == rtc.TrackSource.SOURCE_SCREENSHARE:
+                    screen = pair
+                elif camera is None:
+                    camera = pair
+        return screen or camera
 
     async def on_user_turn_completed(
         self, turn_ctx: ChatContext, new_message: ChatMessage
@@ -159,13 +184,18 @@ class PersonalAssistant(Agent):
         if not _vision_enabled():
             return
 
-        # Old ImageContent in history is the main cause of "seeing" a previous tab.
+        # Old ImageContent in history makes the model describe a previous tab.
+        # Mutating turn_ctx also invalidates preemptive generation (safety net).
         self._strip_prior_images(turn_ctx, keep_message_id=new_message.id)
 
-        frame = await self._capture_fresh_frame()
+        frame = self._latest_frame
         if frame is None:
-            # Persist stripped history even when no frame is available.
-            await self.update_chat_ctx(turn_ctx)
+            logger.warning(
+                "No video frame available for this turn "
+                "(stream=%s frames_received=%s)",
+                self._video_stream is not None,
+                self._frames_received,
+            )
             return
 
         if isinstance(new_message.content, str):
@@ -180,8 +210,12 @@ class PersonalAssistant(Agent):
                 inference_height=768,
             )
         )
-        # Keep history text; drop old screenshots so later turns stay fresh.
-        await self.update_chat_ctx(turn_ctx)
+        logger.info(
+            "Attached vision frame %sx%s (frames_received=%s)",
+            self._frame_width or frame.width,
+            self._frame_height or frame.height,
+            self._frames_received,
+        )
 
     def _strip_prior_images(
         self, turn_ctx: ChatContext, keep_message_id: str | None = None
@@ -199,20 +233,6 @@ class PersonalAssistant(Agent):
             if len(cleaned) != len(content):
                 item.content = cleaned
 
-    async def _capture_fresh_frame(self, timeout: float = 0.75) -> rtc.VideoFrame | None:
-        """Prefer a frame that arrives after the turn ends; fall back to latest."""
-        if self._video_stream is None and self._latest_frame is None:
-            return None
-
-        self._frame_ready.clear()
-        try:
-            await asyncio.wait_for(self._frame_ready.wait(), timeout=timeout)
-        except TimeoutError:
-            # Screen share may be idle; use the most recent buffered frame.
-            pass
-
-        return self._latest_frame
-
     def _create_video_stream(self, track: rtc.Track) -> None:
         if self._video_stream is not None:
             old = self._video_stream
@@ -220,18 +240,23 @@ class PersonalAssistant(Agent):
             asyncio.create_task(old.aclose())
 
         self._video_stream = rtc.VideoStream(track)
-        self._frame_ready.clear()
+        self._latest_frame = None
+        self._frames_received = 0
 
         async def read_stream() -> None:
             assert self._video_stream is not None
             async for event in self._video_stream:
-                # Convert to a stable RGB buffer so encoding isn't racing the
-                # video pipeline's recycled frame memory.
-                try:
-                    self._latest_frame = event.frame.convert(rtc.VideoBufferType.RGB24)
-                except Exception:
-                    self._latest_frame = event.frame
-                self._frame_ready.set()
+                # Keep the raw frame; LiveKit encodes VideoFrame → JPEG for the LLM.
+                self._latest_frame = event.frame
+                self._frame_width = event.frame.width
+                self._frame_height = event.frame.height
+                self._frames_received += 1
+                if self._frames_received == 1:
+                    logger.info(
+                        "First video frame received (%sx%s)",
+                        event.frame.width,
+                        event.frame.height,
+                    )
 
         task = asyncio.create_task(read_stream())
         task.add_done_callback(

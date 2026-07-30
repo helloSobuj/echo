@@ -1,6 +1,7 @@
 import { Public_Sans } from 'next/font/google';
 import localFont from 'next/font/local';
 import { headers } from 'next/headers';
+import Link from 'next/link';
 import { ThemeProvider } from '@/components/app/theme-provider';
 import { ThemeToggle } from '@/components/app/theme-toggle';
 import { cn } from '@/lib/shadcn/utils';
@@ -72,10 +73,8 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           disableTransitionOnChange
         >
           <header className="fixed top-0 left-0 z-50 hidden w-full flex-row justify-between p-6 md:flex">
-            <a
-              target="_blank"
-              rel="noopener noreferrer"
-              href="https://livekit.io"
+            <Link
+              href="/"
               className="scale-100 transition-transform duration-300 hover:scale-110"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -86,17 +85,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
                 alt={`${companyName} Logo`}
                 className="hidden size-6 dark:block"
               />
-            </a>
+            </Link>
             <span className="text-foreground font-mono text-xs font-bold tracking-wider uppercase">
-              Built with{' '}
-              <a
-                target="_blank"
-                rel="noopener noreferrer"
-                href="https://docs.livekit.io/agents"
-                className="underline underline-offset-4"
-              >
-                LiveKit Agents
-              </a>
+              {companyName}
             </span>
           </header>
 

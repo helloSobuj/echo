@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { RoomConfiguration } from '@livekit/protocol';
+import { MCP_ATTR_KEY, sanitizeMcpServers } from '@/lib/mcp-connectors';
 
 type ConnectionDetails = {
   serverUrl: string;
@@ -47,13 +48,28 @@ export async function POST(req: Request) {
 
     // Merge client room_config with required agent dispatch for echo-agent.
     let incoming: Record<string, unknown> = {};
+    let mcpServersRaw: unknown = [];
     try {
       const body = await req.json();
       if (body?.room_config && typeof body.room_config === 'object') {
         incoming = body.room_config as Record<string, unknown>;
       }
+      if (body?.mcp_servers !== undefined) {
+        mcpServersRaw = body.mcp_servers;
+      }
     } catch {
       // empty body is fine
+    }
+
+    let mcpAttributes: Record<string, string> | undefined;
+    try {
+      const enabled = sanitizeMcpServers(mcpServersRaw).filter((s) => s.enabled);
+      if (enabled.length > 0) {
+        mcpAttributes = { [MCP_ATTR_KEY]: JSON.stringify(enabled) };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid mcp_servers';
+      return new NextResponse(message, { status: 400 });
     }
 
     const agents = Array.isArray(incoming.agents) ? incoming.agents : [];
@@ -71,7 +87,11 @@ export async function POST(req: Request) {
     const roomName = `echo_room_${Math.floor(Math.random() * 10_000)}`;
 
     const participantToken = await createParticipantToken(
-      { identity: participantIdentity, name: participantName },
+      {
+        identity: participantIdentity,
+        name: participantName,
+        ...(mcpAttributes ? { attributes: mcpAttributes } : {}),
+      },
       roomName,
       roomConfig
     );
