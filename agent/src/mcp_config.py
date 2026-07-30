@@ -74,25 +74,98 @@ def parse_mcp_server_list(raw: Any) -> list[McpServerConfig]:
     return servers
 
 
+COMPOSIO_DEFAULT_URL = "https://connect.composio.dev/mcp"
+_API_CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "api_config.json"
+
+
+def _composio_enabled() -> bool:
+    env = os.getenv("COMPOSIO_ENABLED")
+    if env is not None and env.strip():
+        return env.strip().lower() not in {"0", "false", "no", "off"}
+    try:
+        if _API_CONFIG_PATH.exists():
+            data = json.loads(_API_CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                composio = data.get("composio")
+                if isinstance(composio, dict) and "enabled" in composio:
+                    return bool(composio.get("enabled"))
+    except (json.JSONDecodeError, OSError):
+        pass
+    return True
+
+
+def _composio_api_key() -> str | None:
+    key = os.getenv("COMPOSIO_API_KEY", "").strip()
+    if key:
+        return key
+    try:
+        if _API_CONFIG_PATH.exists():
+            data = json.loads(_API_CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                composio = data.get("composio")
+                if isinstance(composio, dict):
+                    value = composio.get("api_key")
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def load_composio_mcp_server() -> McpServerConfig | None:
+    """Build Composio Connect MCP config from COMPOSIO_API_KEY when enabled."""
+    if not _composio_enabled():
+        return None
+    key = _composio_api_key()
+    if not key:
+        return None
+    url = os.getenv("COMPOSIO_MCP_URL", COMPOSIO_DEFAULT_URL).strip() or COMPOSIO_DEFAULT_URL
+    headers = {
+        # Connect clients use x-consumer-api-key; some orgs also require x-api-key.
+        "x-consumer-api-key": key,
+        "x-api-key": key,
+    }
+    user_id = os.getenv("COMPOSIO_USER_ID", "").strip()
+    if user_id:
+        headers["x-user-id"] = user_id
+    return McpServerConfig(
+        id="composio",
+        name="Composio",
+        url=url,
+        enabled=True,
+        headers=headers,
+    )
+
+
 def load_admin_mcp_servers(data_path: Path | None = None) -> list[McpServerConfig]:
+    servers: list[McpServerConfig] = []
+
     env_raw = os.getenv("MCP_SERVERS", "").strip()
     if env_raw:
         try:
-            return parse_mcp_server_list(json.loads(env_raw))
+            servers = parse_mcp_server_list(json.loads(env_raw))
         except (json.JSONDecodeError, ValueError) as exc:
             logger.warning("Invalid MCP_SERVERS env: %s", exc)
-            return []
+            servers = []
+    else:
+        path = data_path or (
+            Path(__file__).resolve().parents[1] / "data" / "mcp_servers.json"
+        )
+        if path.exists():
+            try:
+                servers = parse_mcp_server_list(json.loads(path.read_text(encoding="utf-8")))
+            except (json.JSONDecodeError, OSError, ValueError) as exc:
+                logger.warning("Failed to load %s: %s", path, exc)
+                servers = []
 
-    path = data_path or (
-        Path(__file__).resolve().parents[1] / "data" / "mcp_servers.json"
-    )
-    if not path.exists():
-        return []
-    try:
-        return parse_mcp_server_list(json.loads(path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError, ValueError) as exc:
-        logger.warning("Failed to load %s: %s", path, exc)
-        return []
+    composio = load_composio_mcp_server()
+    if composio:
+        # Composio env wins over a duplicate URL entry in MCP_SERVERS.
+        servers = [s for s in servers if s.url.rstrip("/") != composio.url.rstrip("/")]
+        servers.insert(0, composio)
+        logger.info("Composio MCP gateway enabled (%s)", composio.url)
+
+    return servers
 
 
 def parse_user_mcp_servers(attributes: dict[str, str] | None) -> list[McpServerConfig]:
@@ -149,15 +222,28 @@ def build_mcp_toolsets(servers: list[McpServerConfig]) -> list[Any]:
         if not server.enabled:
             continue
         try:
+            # Composio Connect is streamable HTTP and can be slow to list/call tools.
+            is_composio = "composio.dev" in server.url.lower() or server.id == "composio"
             toolsets.append(
                 mcp.MCPToolset(
                     id=server.id,
                     mcp_server=mcp.MCPServerHTTP(
                         url=server.url,
                         headers=server.headers or None,
-                        client_session_timeout_seconds=30,
+                        transport_type="streamable_http"
+                        if is_composio
+                        else None,
+                        timeout=60 if is_composio else 15,
+                        sse_read_timeout=300,
+                        client_session_timeout_seconds=60 if is_composio else 30,
                     ),
                 )
+            )
+            logger.info(
+                "MCP toolset ready id=%s url=%s composio=%s",
+                server.id,
+                server.url,
+                is_composio,
             )
         except Exception as exc:
             logger.warning(

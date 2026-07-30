@@ -15,6 +15,7 @@ from mcp_config import (
     build_mcp_toolsets,
     collect_user_attributes_from_room,
     load_admin_mcp_servers,
+    load_composio_mcp_server,
     merge_mcp_servers,
     parse_user_mcp_servers,
 )
@@ -70,12 +71,18 @@ async def echo_agent(ctx: JobContext):
         ),
     )
 
-    await session.generate_reply(
-        instructions=(
-            "Greet the user warmly as Echo. Mention that you can hear them, "
-            "and if they turn on the camera you can also see what they show you."
-        )
+    greet = (
+        "Greet the user warmly as Echo. Mention that you can hear them, "
+        "and if they turn on the camera you can also see what they show you. "
+        "Also mention they can ask you to set a short reminder during this call."
     )
+    if load_composio_mcp_server() is not None:
+        greet += (
+            " Briefly note that you can also help with connected apps like Gmail "
+            "or Calendar once they have linked those apps in Composio."
+        )
+
+    await session.generate_reply(instructions=greet)
 
 
 if __name__ == "__main__":

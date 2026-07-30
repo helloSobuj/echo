@@ -34,6 +34,10 @@ def _get_tavily_key() -> str | None:
 
 
 def _is_tavily_enabled() -> bool:
+    env = os.getenv("TAVILY_ENABLED")
+    if env is not None and env.strip():
+        return env.strip().lower() not in {"0", "false", "no", "off"}
+
     try:
         if CONFIG_PATH.exists():
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))

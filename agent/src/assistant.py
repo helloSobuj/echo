@@ -13,7 +13,8 @@ from livekit import rtc
 from livekit.agents import Agent, ChatContext, ChatMessage, get_job_context
 from livekit.agents.llm import ImageContent
 
-from tools import get_current_time, list_notes, save_note, web_search
+from mcp_config import load_composio_mcp_server
+from tools import get_current_time, list_notes, save_note, set_reminder, web_search
 
 logger = logging.getLogger("agent")
 
@@ -47,6 +48,7 @@ DEFAULT_INSTRUCTIONS = textwrap.dedent(
     - Use save_note to remember something the user asks you to store.
     - Use list_notes when the user asks what you remember or to read their notes.
     - Use get_current_time when asked for the date or time.
+    - Use set_reminder when the user asks to be reminded, pinged, or notified after a delay during this call. Convert minutes to seconds. Reminders only work while the call is still connected.
     - Use web_search to find current information from the internet when the user asks about recent events, facts, or anything that may have changed.
     - External MCP tools may be available depending on configuration. When they are, use them for matching user requests. Never invent tool results.
     - Confirm actions briefly after using a tool.
@@ -101,6 +103,27 @@ def _load_profile_context() -> str:
     return "\n\n# User profile\n" + "\n".join(parts)
 
 
+def _composio_instructions() -> str:
+    if load_composio_mcp_server() is None:
+        return ""
+    return textwrap.dedent(
+        """
+
+        # Connected apps (Composio)
+        - Composio is available as MCP meta-tools. Notion, Gmail, Calendar, Slack, and GitHub are reached through those tools, not as separate named functions.
+        - For any request about Notion or other apps, you MUST call tools before answering:
+          1) COMPOSIO_MANAGE_CONNECTIONS to list whether Notion (or the app) is already connected.
+          2) COMPOSIO_SEARCH_TOOLS for the user request.
+          3) COMPOSIO_GET_TOOL_SCHEMAS if you need argument shapes.
+          4) COMPOSIO_MULTI_EXECUTE_TOOL to run the action.
+        - If a connection is missing, use COMPOSIO_MANAGE_CONNECTIONS to start OAuth and tell the user the link in plain speech. Use COMPOSIO_WAIT_FOR_CONNECTIONS while they finish.
+        - Never claim you can or cannot access Notion without calling COMPOSIO_MANAGE_CONNECTIONS first in this turn.
+        - Do not narrate tool names. After tools finish, give one short spoken answer.
+        - Prefer Composio for app actions; use web_search for general internet facts.
+        """
+    )
+
+
 def _vision_enabled() -> bool:
     return os.getenv("VISION_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -109,8 +132,10 @@ class PersonalAssistant(Agent):
     """Voice assistant with optional live camera/screen vision via frame sampling."""
 
     def __init__(self) -> None:
-        instructions = DEFAULT_INSTRUCTIONS + _load_profile_context()
-        tools = [save_note, list_notes, get_current_time]
+        instructions = (
+            DEFAULT_INSTRUCTIONS + _load_profile_context() + _composio_instructions()
+        )
+        tools = [save_note, list_notes, get_current_time, set_reminder]
         if _has_tavily_key():
             tools.append(web_search)
 
