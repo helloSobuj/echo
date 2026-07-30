@@ -31,6 +31,13 @@ export function useAgentErrors() {
   useEffect(() => {
     if (isConnected && agent.state === 'failed') {
       const reasons = agent.failureReasons;
+      const hasAgentNotJoin = reasons.some(
+        (r) =>
+          typeof r === 'string' &&
+          (r.toLowerCase().includes('did not join') ||
+            r.toLowerCase().includes('not join') ||
+            r.toLowerCase().includes('agent not')),
+      );
 
       toastAlert({
         title: 'Session ended',
@@ -44,17 +51,59 @@ export function useAgentErrors() {
               </ul>
             )}
             {reasons.length === 1 && <p className="w-full">{reasons[0]}</p>}
-            <p className="w-full">
-              <a
-                target="_blank"
-                rel="noopener noreferrer"
-                href="https://docs.livekit.io/agents/start/voice-ai/"
-                className="whitespace-nowrap underline"
-              >
-                See quickstart guide
-              </a>
-              .
-            </p>
+            {hasAgentNotJoin && (
+              <div className="mt-2 w-full space-y-1 rounded-md bg-background/50 p-2 text-left text-[11px] leading-5">
+                <p className="font-semibold">Troubleshooting checklist:</p>
+                <ol className="list-inside list-decimal pl-1">
+                  <li>
+                    Run{' '}
+                    <code className="rounded bg-background px-1 font-mono">
+                      lk agent status
+                    </code>{' '}
+                    — confirm the agent shows <span className="font-semibold">Running</span>.
+                  </li>
+                  <li>
+                    If stopped, redeploy with{' '}
+                    <code className="rounded bg-background px-1 font-mono">
+                      lk agent deploy
+                    </code>
+                    .
+                  </li>
+                  <li>
+                    Verify{' '}
+                    <code className="rounded bg-background px-1 font-mono">
+                      LIVEKIT_URL
+                    </code>
+                    /keys in Vercel env vars belong to the{' '}
+                    <em>same</em> LiveKit Cloud project as the deployed agent.
+                  </li>
+                  <li>
+                    Check that{' '}
+                    <code className="rounded bg-background px-1 font-mono">
+                      AGENT_NAME=echo-agent
+                    </code>{' '}
+                    matches{' '}
+                    <code className="rounded bg-background px-1 font-mono">
+                      @server.rtc_session(agent_name="echo-agent")
+                    </code>{' '}
+                    in agent.py.
+                  </li>
+                </ol>
+              </div>
+            )}
+            {!hasAgentNotJoin && (
+              <p className="w-full">
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://docs.livekit.io/agents/start/voice-ai/"
+                  className="whitespace-nowrap underline"
+                >
+                  See quickstart guide
+                </a>
+                .
+              </p>
+            )}
           </>
         ),
       });
