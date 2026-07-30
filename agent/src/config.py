@@ -1,4 +1,4 @@
-"""Model provider configuration: LiveKit Inference (default) or BYOK plugins."""
+"""Model provider configuration: LiveKit Inference, BYOK, or OpenRouter (vision)."""
 
 from __future__ import annotations
 
@@ -10,15 +10,25 @@ from livekit.agents import AgentSession, TurnHandlingOptions, inference
 logger = logging.getLogger("agent")
 
 CARTESIA_DEFAULT_VOICE = "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc"
+# Vision-capable Gemini via OpenRouter (no Google API key required)
+DEFAULT_OPENROUTER_VISION_MODEL = "google/gemini-2.5-flash"
 
 
 def get_model_mode() -> str:
-    """Return 'inference' (default) or 'byok'."""
-    return os.getenv("MODEL_MODE", "inference").strip().lower()
+    """Return 'inference' (default), 'byok', or 'openrouter'."""
+    mode = os.getenv("MODEL_MODE", "inference").strip().lower()
+    # Auto-enable OpenRouter when key is present and vision is requested
+    if mode == "inference" and os.getenv("OPENROUTER_API_KEY") and _vision_enabled():
+        return "openrouter"
+    return mode
+
+
+def _vision_enabled() -> bool:
+    return os.getenv("VISION_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def build_session() -> AgentSession:
-    """Build an AgentSession using LiveKit Inference or bring-your-own-key plugins."""
+    """Build an AgentSession using Inference, BYOK plugins, or OpenRouter+Gemini."""
     mode = get_model_mode()
     turn_handling = TurnHandlingOptions(
         turn_detection=inference.TurnDetector(),
@@ -35,6 +45,26 @@ def build_session() -> AgentSession:
             tts=cartesia.TTS(
                 model=os.getenv("CARTESIA_TTS_MODEL", "sonic-3"),
                 voice=os.getenv("CARTESIA_VOICE_ID", CARTESIA_DEFAULT_VOICE),
+            ),
+            turn_handling=turn_handling,
+        )
+
+    if mode == "openrouter":
+        logger.info("MODEL_MODE=openrouter — STT/TTS via Inference, LLM via OpenRouter")
+        from livekit.plugins import openai
+
+        model = os.getenv("OPENROUTER_MODEL", DEFAULT_OPENROUTER_VISION_MODEL)
+        return AgentSession(
+            stt=inference.STT(model="deepgram/nova-3", language="multi"),
+            llm=openai.LLM.with_openrouter(
+                model=model,
+                api_key=os.getenv("OPENROUTER_API_KEY"),
+                site_url=os.getenv("OPENROUTER_SITE_URL", "https://echo-web-tau-ochre.vercel.app"),
+                app_name=os.getenv("OPENROUTER_APP_NAME", "Echo Voice Agent"),
+            ),
+            tts=inference.TTS(
+                model="inworld/inworld-tts-2",
+                voice=os.getenv("INFERENCE_TTS_VOICE", "Ashley"),
             ),
             turn_handling=turn_handling,
         )
