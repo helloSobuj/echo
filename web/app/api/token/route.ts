@@ -34,13 +34,15 @@ export async function POST(req: Request) {
 
   try {
     if (LIVEKIT_URL === undefined) {
-      throw new Error('LIVEKIT_URL is not defined');
+      throw new Error(
+        'LIVEKIT_URL is not set. Configure it in web/.env.local or enable NEXT_PUBLIC_USE_SANDBOX for demos.'
+      );
     }
     if (API_KEY === undefined) {
-      throw new Error('LIVEKIT_API_KEY is not defined');
+      throw new Error('LIVEKIT_API_KEY is not set. Configure it in web/.env.local.');
     }
     if (API_SECRET === undefined) {
-      throw new Error('LIVEKIT_API_SECRET is not defined');
+      throw new Error('LIVEKIT_API_SECRET is not set. Configure it in web/.env.local.');
     }
 
     // Merge client room_config with required agent dispatch for echo-agent.
