@@ -41,8 +41,8 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   pageDescription: 'Talk to your personal LiveKit voice assistant',
 
   supportsChatInput: true,
-  supportsVideoInput: false,
-  supportsScreenShare: false,
+  supportsVideoInput: true,
+  supportsScreenShare: true,
   isPreConnectBufferEnabled: true,
 
   logo: '/lk-logo.svg',

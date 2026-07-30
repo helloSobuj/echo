@@ -1,8 +1,9 @@
-"""Echo personal voice agent entrypoint."""
+"""Echo personal voice + vision agent entrypoint."""
 
 from __future__ import annotations
 
 import logging
+import os
 
 from dotenv import load_dotenv
 from livekit.agents import AgentServer, JobContext, cli, room_io
@@ -21,11 +22,16 @@ Assistant = PersonalAssistant
 server = AgentServer()
 
 
+def _vision_enabled() -> bool:
+    return os.getenv("VISION_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
 @server.rtc_session(agent_name="echo-agent")
 async def echo_agent(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
         "model_mode": get_model_mode(),
+        "vision": _vision_enabled(),
     }
 
     session = build_session()
@@ -34,6 +40,7 @@ async def echo_agent(ctx: JobContext):
         agent=PersonalAssistant(),
         room=ctx.room,
         room_options=room_io.RoomOptions(
+            video_input=_vision_enabled(),
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=ai_coustics.audio_enhancement(
                     model=ai_coustics.EnhancerModel.QUAIL_VF_S
@@ -45,7 +52,10 @@ async def echo_agent(ctx: JobContext):
     await ctx.connect()
 
     await session.generate_reply(
-        instructions="Greet the user warmly as Echo and offer your help."
+        instructions=(
+            "Greet the user warmly as Echo. Mention that you can hear them, "
+            "and if they turn on the camera you can also see what they show you."
+        )
     )
 
 
