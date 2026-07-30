@@ -165,7 +165,9 @@ export default function AdminPage() {
         setSaveMessage('MCP defaults saved to agent/data/mcp_servers.json.');
       } else {
         setSaveOk(false);
-        setSaveMessage(typeof data.error === 'string' ? data.error : 'Failed to save MCP defaults.');
+        setSaveMessage(
+          typeof data.error === 'string' ? data.error : 'Failed to save MCP defaults.'
+        );
       }
     } catch {
       setSaveOk(false);
@@ -241,8 +243,7 @@ export default function AdminPage() {
           <p className="font-medium">Production note</p>
           <p className="text-muted-foreground mt-1">
             This Vercel deployment cannot save keys to disk (read-only filesystem). Configure agent
-            secrets instead:{' '}
-            <code className="font-mono text-xs">TAVILY_API_KEY</code>,{' '}
+            secrets instead: <code className="font-mono text-xs">TAVILY_API_KEY</code>,{' '}
             <code className="font-mono text-xs">MCP_SERVERS</code>.
           </p>
           <p className="text-muted-foreground mt-2">
@@ -384,9 +385,9 @@ export default function AdminPage() {
 
           <div className="space-y-3 text-sm">
             <p className="text-muted-foreground leading-6">
-              In production, set the agent secret <code className="font-mono text-xs">MCP_SERVERS</code>{' '}
-              to a JSON array. Locally you can save to{' '}
-              <code className="font-mono text-xs">agent/data/mcp_servers.json</code>.
+              In production, set the agent secret{' '}
+              <code className="font-mono text-xs">MCP_SERVERS</code> to a JSON array. Locally you
+              can save to <code className="font-mono text-xs">agent/data/mcp_servers.json</code>.
             </p>
             <pre className="bg-muted/50 overflow-x-auto rounded-lg border p-3 font-mono text-xs leading-5">
               {MCP_EXAMPLE}

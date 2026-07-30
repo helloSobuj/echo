@@ -6,8 +6,8 @@ import { Separator } from '@/components/ui/separator';
 import {
   type McpServerConfig,
   loadMcpServersFromStorage,
-  saveMcpServersToStorage,
   sanitizeMcpServers,
+  saveMcpServersToStorage,
 } from '@/lib/mcp-connectors';
 
 function newId(): string {
@@ -66,9 +66,7 @@ export function McpConnectorsPanel() {
   }
 
   function toggleEnabled(id: string) {
-    persist(
-      servers.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s))
-    );
+    persist(servers.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)));
   }
 
   function removeServer(id: string) {
@@ -80,15 +78,15 @@ export function McpConnectorsPanel() {
       <div>
         <h3 className="text-sm font-semibold">MCP Connectors</h3>
         <p className="text-muted-foreground mt-1 text-xs leading-5">
-          Add HTTP/SSE MCP servers for this browser. Credentials stay in local
-          storage for personal use only. Admin defaults on the agent still apply.
+          Add HTTP/SSE MCP servers for this browser. Credentials stay in local storage for personal
+          use only. Admin defaults on the agent still apply.
         </p>
       </div>
 
       {servers.length === 0 ? (
         <p className="text-muted-foreground text-xs leading-5">
-          No personal connectors yet. You can still use admin-configured MCP
-          servers if set on the agent.
+          No personal connectors yet. You can still use admin-configured MCP servers if set on the
+          agent.
         </p>
       ) : (
         <ul className="space-y-2">

@@ -1,9 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  type McpServerConfig,
-  sanitizeMcpServers,
-} from '@/lib/mcp-connectors';
+import { type McpServerConfig, sanitizeMcpServers } from '@/lib/mcp-connectors';
 
 const DEFAULT_CONFIG_PATH = path.resolve(process.cwd(), '..', 'agent', 'data', 'api_config.json');
 const DEFAULT_MCP_PATH = path.resolve(process.cwd(), '..', 'agent', 'data', 'mcp_servers.json');
