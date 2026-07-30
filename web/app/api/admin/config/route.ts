@@ -46,6 +46,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: errors.join('; ') }, { status: 400 });
   }
 
-  const result = updateConfig(body);
-  return NextResponse.json(result.masked);
+  try {
+    const result = updateConfig(body);
+    return NextResponse.json(result.masked);
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : 'Failed to save settings. Production uses LiveKit agent secrets instead of this panel.';
+    return NextResponse.json({ error: message }, { status: 503 });
+  }
 }

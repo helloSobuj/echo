@@ -9,8 +9,16 @@ interface TavilyStatus {
   enabled: boolean;
 }
 
+interface StorageStatus {
+  writable: boolean;
+  mode: 'file' | 'readonly';
+  path: string;
+  hint: string;
+}
+
 interface ConfigStatus {
   tavily: TavilyStatus;
+  storage: StorageStatus;
 }
 
 export default function AdminPage() {
@@ -22,6 +30,7 @@ export default function AdminPage() {
   const [tavilyEnabled, setTavilyEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [saveOk, setSaveOk] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -70,7 +79,9 @@ export default function AdminPage() {
   async function handleLogout() {
     try {
       await fetch('/api/admin/logout', { method: 'POST' });
-    } catch {}
+    } catch {
+      // ignore
+    }
     setIsAuthed(false);
     setConfig(null);
     setTavilyKey('');
@@ -80,6 +91,7 @@ export default function AdminPage() {
   async function handleSave() {
     setSaving(true);
     setSaveMessage('');
+    setSaveOk(false);
     try {
       const payload: { tavily: { enabled: boolean; api_key?: string } } = {
         tavily: { enabled: tavilyEnabled },
@@ -93,18 +105,20 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setConfig(data);
+        setSaveOk(true);
         setSaveMessage('Settings saved successfully.');
         if (tavilyKey.trim()) {
           setTavilyKey('');
         }
       } else {
-        const data = await res.json();
-        setSaveMessage(data.error || 'Failed to save settings.');
+        setSaveOk(false);
+        setSaveMessage(typeof data.error === 'string' ? data.error : 'Failed to save settings.');
       }
     } catch {
+      setSaveOk(false);
       setSaveMessage('Failed to save settings.');
     } finally {
       setSaving(false);
@@ -154,6 +168,8 @@ export default function AdminPage() {
     );
   }
 
+  const readonly = config?.storage && !config.storage.writable;
+
   return (
     <div className="mx-auto max-w-2xl p-6">
       <div className="flex items-center justify-between pb-4">
@@ -170,6 +186,24 @@ export default function AdminPage() {
 
       <Separator className="mb-6" />
 
+      {readonly && (
+        <div className="bg-muted/40 mb-6 rounded-xl border p-4 text-sm leading-6">
+          <p className="font-medium">Production note</p>
+          <p className="text-muted-foreground mt-1">
+            This Vercel deployment cannot save keys to disk (read-only filesystem). Tavily for voice
+            search is already configured on the LiveKit agent via{' '}
+            <code className="font-mono text-xs">TAVILY_API_KEY</code> secret — you can talk to Echo
+            and ask it to search the web without saving here.
+          </p>
+          <p className="text-muted-foreground mt-2">
+            To change the key later, run locally:{' '}
+            <code className="font-mono text-xs">
+              lk agent update-secrets --overwrite --secrets TAVILY_API_KEY=tvly-...
+            </code>
+          </p>
+        </div>
+      )}
+
       <div className="space-y-6">
         <section className="bg-card rounded-xl border p-6">
           <div className="flex items-center justify-between">
@@ -182,11 +216,15 @@ export default function AdminPage() {
             <div className="flex items-center gap-2">
               <span
                 className={`inline-flex size-2 rounded-full ${
-                  config?.tavily.configured ? 'bg-green-500' : 'bg-muted-foreground/30'
+                  config?.tavily.configured || readonly ? 'bg-green-500' : 'bg-muted-foreground/30'
                 }`}
               />
               <span className="text-muted-foreground text-sm">
-                {config?.tavily.configured ? 'Configured' : 'Not set'}
+                {readonly
+                  ? 'Set on LiveKit agent'
+                  : config?.tavily.configured
+                    ? 'Configured'
+                    : 'Not set'}
               </span>
             </div>
           </div>
@@ -204,11 +242,14 @@ export default function AdminPage() {
                   type="password"
                   value={tavilyKey}
                   onChange={(e) => setTavilyKey(e.target.value)}
-                  className="bg-background focus-visible:border-ring focus-visible:ring-ring/50 flex-1 rounded-md border px-3 py-2 text-sm transition-colors outline-none focus-visible:ring-2"
+                  disabled={readonly}
+                  className="bg-background focus-visible:border-ring focus-visible:ring-ring/50 flex-1 rounded-md border px-3 py-2 text-sm transition-colors outline-none focus-visible:ring-2 disabled:opacity-50"
                   placeholder={
-                    config?.tavily.configured
-                      ? 'Leave blank to keep existing key'
-                      : 'Paste your Tavily API key'
+                    readonly
+                      ? 'Managed via LiveKit agent secrets'
+                      : config?.tavily.configured
+                        ? 'Leave blank to keep existing key'
+                        : 'Paste your Tavily API key'
                   }
                 />
               </div>
@@ -222,7 +263,7 @@ export default function AdminPage() {
                 >
                   tavily.com
                 </a>
-                . The key is stored locally and never shown again.
+                . Local saves go to <code className="font-mono">agent/data/api_config.json</code>.
               </p>
             </div>
 
@@ -236,7 +277,8 @@ export default function AdminPage() {
               <button
                 type="button"
                 onClick={() => setTavilyEnabled(!tavilyEnabled)}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                disabled={readonly}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   tavilyEnabled ? 'bg-primary' : 'bg-muted'
                 }`}
                 role="switch"
@@ -254,14 +296,14 @@ export default function AdminPage() {
           <div className="mt-6 flex items-center justify-end gap-3">
             {saveMessage && (
               <span
-                className={`text-sm ${
-                  saveMessage.includes('saved') ? 'text-green-500' : 'text-destructive'
+                className={`max-w-md text-right text-sm ${
+                  saveOk ? 'text-green-500' : 'text-destructive'
                 }`}
               >
                 {saveMessage}
               </span>
             )}
-            <Button onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving || readonly}>
               {saving ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>

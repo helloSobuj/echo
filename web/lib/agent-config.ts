@@ -17,12 +17,56 @@ export interface MaskedTavilyStatus {
   enabled: boolean;
 }
 
+export interface StorageStatus {
+  writable: boolean;
+  mode: 'file' | 'readonly';
+  path: string;
+  hint: string;
+}
+
 export interface MaskedConfig {
   tavily: MaskedTavilyStatus;
+  storage: StorageStatus;
 }
 
 export function getConfigPath(): string {
   return process.env.AGENT_CONFIG_PATH || DEFAULT_CONFIG_PATH;
+}
+
+export function getStorageStatus(): StorageStatus {
+  const filePath = getConfigPath();
+  const onVercel = Boolean(process.env.VERCEL);
+
+  if (onVercel || process.env.AGENT_CONFIG_READONLY === 'true') {
+    return {
+      writable: false,
+      mode: 'readonly',
+      path: filePath,
+      hint: 'Production filesystem is read-only. Set TAVILY_API_KEY as a LiveKit agent secret with: lk agent update-secrets --secrets TAVILY_API_KEY=tvly-...',
+    };
+  }
+
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    // Probe write access without changing config contents
+    fs.accessSync(dir, fs.constants.W_OK);
+    return {
+      writable: true,
+      mode: 'file',
+      path: filePath,
+      hint: 'Keys are saved to agent/data/api_config.json for local development.',
+    };
+  } catch {
+    return {
+      writable: false,
+      mode: 'readonly',
+      path: filePath,
+      hint: `Cannot write to ${filePath}. For production, set TAVILY_API_KEY on the LiveKit agent instead.`,
+    };
+  }
 }
 
 export function readConfig(): ApiConfig {
@@ -43,6 +87,11 @@ export function readConfig(): ApiConfig {
 }
 
 export function writeConfig(config: ApiConfig): void {
+  const storage = getStorageStatus();
+  if (!storage.writable) {
+    throw new Error(storage.hint);
+  }
+
   const filePath = getConfigPath();
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
@@ -53,13 +102,7 @@ export function writeConfig(config: ApiConfig): void {
 
 export function getMaskedConfig(): MaskedConfig {
   const config = readConfig();
-  const tavily = config.tavily;
-  return {
-    tavily: {
-      configured: Boolean(tavily?.api_key),
-      enabled: tavily?.enabled ?? true,
-    },
-  };
+  return getMaskedConfigFrom(config);
 }
 
 export interface UpdateConfigPayload {
@@ -95,5 +138,6 @@ function getMaskedConfigFrom(config: ApiConfig): MaskedConfig {
       configured: Boolean(tavily?.api_key),
       enabled: tavily?.enabled ?? true,
     },
+    storage: getStorageStatus(),
   };
 }
