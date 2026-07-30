@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import type { AppConfig } from '@/app-config';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 
 interface SettingsPanelProps {
   appConfig: AppConfig;
@@ -46,7 +48,13 @@ export function SettingsPanel({ appConfig }: SettingsPanelProps) {
             <code className="font-mono">agent/.env.local</code>. See the project README.
           </p>
 
-          <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => setOpen(false)}>
+          <Separator className="my-4" />
+
+          <Button asChild variant="outline" size="sm" className="w-full">
+            <Link href="/admin">Admin Panel</Link>
+          </Button>
+
+          <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setOpen(false)}>
             Close
           </Button>
         </div>
