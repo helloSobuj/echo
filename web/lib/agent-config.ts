@@ -1,5 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  canManageAgentSecrets,
+  listAgentSecretNames,
+  updateAgentSecrets,
+} from '@/lib/livekit-agent-secrets';
 import { type McpServerConfig, sanitizeMcpServers } from '@/lib/mcp-connectors';
 
 const DEFAULT_CONFIG_PATH = path.resolve(process.cwd(), '..', 'agent', 'data', 'api_config.json');
@@ -12,6 +17,10 @@ export interface TavilyConfig {
 
 export interface ApiConfig {
   tavily?: TavilyConfig;
+  composio?: {
+    api_key?: string;
+    enabled?: boolean;
+  };
 }
 
 export interface MaskedTavilyStatus {
@@ -25,9 +34,14 @@ export interface MaskedMcpStatus {
   path: string;
 }
 
+export interface MaskedComposioStatus {
+  configured: boolean;
+  enabled: boolean;
+}
+
 export interface StorageStatus {
   writable: boolean;
-  mode: 'file' | 'readonly';
+  mode: 'file' | 'livekit' | 'readonly';
   path: string;
   hint: string;
 }
@@ -35,7 +49,9 @@ export interface StorageStatus {
 export interface MaskedConfig {
   tavily: MaskedTavilyStatus;
   mcp: MaskedMcpStatus;
+  composio: MaskedComposioStatus;
   storage: StorageStatus;
+  secret_names?: string[];
 }
 
 export function getConfigPath(): string {
@@ -48,14 +64,23 @@ export function getMcpConfigPath(): string {
 
 export function getStorageStatus(): StorageStatus {
   const filePath = getConfigPath();
-  const onVercel = Boolean(process.env.VERCEL);
 
+  if (canManageAgentSecrets()) {
+    return {
+      writable: true,
+      mode: 'livekit',
+      path: 'LiveKit agent secrets',
+      hint: 'Saves push to the LiveKit Cloud agent (rolling restart). Keys are not readable back from the cloud.',
+    };
+  }
+
+  const onVercel = Boolean(process.env.VERCEL);
   if (onVercel || process.env.AGENT_CONFIG_READONLY === 'true') {
     return {
       writable: false,
       mode: 'readonly',
       path: filePath,
-      hint: 'Production filesystem is read-only. Set agent secrets with lk agent update-secrets (TAVILY_API_KEY, MCP_SERVERS).',
+      hint: 'Production filesystem is read-only. Set LIVEKIT_AGENT_ID on Vercel (with LIVEKIT_API_KEY/SECRET) so admin can update agent secrets.',
     };
   }
 
@@ -76,7 +101,7 @@ export function getStorageStatus(): StorageStatus {
       writable: false,
       mode: 'readonly',
       path: filePath,
-      hint: `Cannot write to ${filePath}. For production, set secrets on the LiveKit agent instead.`,
+      hint: `Cannot write to ${filePath}. Set LIVEKIT_AGENT_ID to manage secrets via LiveKit Cloud.`,
     };
   }
 }
@@ -100,7 +125,7 @@ export function readConfig(): ApiConfig {
 
 export function writeConfig(config: ApiConfig): void {
   const storage = getStorageStatus();
-  if (!storage.writable) {
+  if (storage.mode !== 'file') {
     throw new Error(storage.hint);
   }
 
@@ -127,7 +152,7 @@ export function readMcpServers(): McpServerConfig[] {
 
 export function writeMcpServers(servers: McpServerConfig[]): void {
   const storage = getStorageStatus();
-  if (!storage.writable) {
+  if (storage.mode !== 'file') {
     throw new Error(storage.hint);
   }
   const cleaned = sanitizeMcpServers(servers);
@@ -139,9 +164,38 @@ export function writeMcpServers(servers: McpServerConfig[]): void {
   fs.writeFileSync(filePath, JSON.stringify(cleaned, null, 2), 'utf-8');
 }
 
-export function getMaskedConfig(): MaskedConfig {
-  const config = readConfig();
-  return getMaskedConfigFrom(config);
+export async function getMaskedConfig(): Promise<MaskedConfig> {
+  const storage = getStorageStatus();
+  if (storage.mode === 'livekit') {
+    let names: string[] = [];
+    try {
+      names = await listAgentSecretNames();
+    } catch {
+      names = [];
+    }
+    const nameSet = new Set(names);
+    const hasMcp = nameSet.has('MCP_SERVERS');
+    return {
+      tavily: {
+        configured: nameSet.has('TAVILY_API_KEY'),
+        // LiveKit cannot read secret values; default to enabled when key exists.
+        enabled: true,
+      },
+      mcp: {
+        configured: hasMcp,
+        count: hasMcp ? 1 : 0,
+        path: 'MCP_SERVERS (LiveKit secret)',
+      },
+      composio: {
+        configured: nameSet.has('COMPOSIO_API_KEY'),
+        enabled: true,
+      },
+      storage,
+      secret_names: names,
+    };
+  }
+
+  return getMaskedConfigFrom(readConfig());
 }
 
 export interface UpdateConfigPayload {
@@ -150,12 +204,60 @@ export interface UpdateConfigPayload {
     enabled?: boolean;
   };
   mcp_servers?: McpServerConfig[];
+  composio?: {
+    api_key?: string;
+    enabled?: boolean;
+  };
 }
 
-export function updateConfig(payload: UpdateConfigPayload): {
-  config: ApiConfig;
+export async function updateConfig(payload: UpdateConfigPayload): Promise<{
   masked: MaskedConfig;
-} {
+  mcp_servers: McpServerConfig[];
+}> {
+  const storage = getStorageStatus();
+
+  if (storage.mode === 'livekit') {
+    const secrets: Record<string, string> = {};
+
+    if (payload.tavily) {
+      if (payload.tavily.api_key?.trim()) {
+        secrets.TAVILY_API_KEY = payload.tavily.api_key.trim();
+      }
+      if (payload.tavily.enabled !== undefined) {
+        secrets.TAVILY_ENABLED = payload.tavily.enabled ? 'true' : 'false';
+      }
+    }
+
+    if (payload.mcp_servers) {
+      const cleaned = sanitizeMcpServers(payload.mcp_servers);
+      secrets.MCP_SERVERS = JSON.stringify(cleaned);
+    }
+
+    if (payload.composio) {
+      if (payload.composio.api_key?.trim()) {
+        secrets.COMPOSIO_API_KEY = payload.composio.api_key.trim();
+      }
+      if (payload.composio.enabled !== undefined) {
+        secrets.COMPOSIO_ENABLED = payload.composio.enabled ? 'true' : 'false';
+      }
+    }
+
+    if (Object.keys(secrets).length === 0) {
+      throw new Error('Nothing to save. Provide a key or MCP config to update.');
+    }
+
+    await updateAgentSecrets(secrets);
+    const masked = await getMaskedConfig();
+    return {
+      masked,
+      mcp_servers: payload.mcp_servers ? sanitizeMcpServers(payload.mcp_servers) : [],
+    };
+  }
+
+  if (!storage.writable) {
+    throw new Error(storage.hint);
+  }
+
   const current = readConfig();
   const next: ApiConfig = { ...current };
 
@@ -165,19 +267,33 @@ export function updateConfig(payload: UpdateConfigPayload): {
       ...existing,
       ...payload.tavily,
     };
+  }
+
+  if (payload.composio) {
+    const existing = next.composio || { enabled: true };
+    next.composio = {
+      ...existing,
+      ...payload.composio,
+    };
+  }
+
+  if (payload.tavily || payload.composio) {
     writeConfig(next);
   }
 
+  let mcpServers = readMcpServers();
   if (payload.mcp_servers) {
     writeMcpServers(payload.mcp_servers);
+    mcpServers = sanitizeMcpServers(payload.mcp_servers);
   }
 
-  return { config: next, masked: getMaskedConfigFrom(next) };
+  return { masked: getMaskedConfigFrom(next), mcp_servers: mcpServers };
 }
 
 function getMaskedConfigFrom(config: ApiConfig): MaskedConfig {
   const tavily = config.tavily;
   const mcpServers = readMcpServers();
+  const composio = config.composio;
   return {
     tavily: {
       configured: Boolean(tavily?.api_key),
@@ -187,6 +303,10 @@ function getMaskedConfigFrom(config: ApiConfig): MaskedConfig {
       configured: mcpServers.length > 0,
       count: mcpServers.length,
       path: getMcpConfigPath(),
+    },
+    composio: {
+      configured: Boolean(composio?.api_key) || Boolean(process.env.COMPOSIO_API_KEY),
+      enabled: composio?.enabled ?? true,
     },
     storage: getStorageStatus(),
   };

@@ -7,12 +7,17 @@ import os
 from typing import Any
 
 from livekit.agents import AgentSession, TurnHandlingOptions, inference
+from livekit.plugins import silero
+
+from mcp_config import load_composio_mcp_server
 
 logger = logging.getLogger("agent")
 
 CARTESIA_DEFAULT_VOICE = "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc"
 # Vision-capable Gemini via OpenRouter (no Google API key required)
 DEFAULT_OPENROUTER_VISION_MODEL = "google/gemini-2.5-flash"
+
+_vad: Any | None = None
 
 
 def get_model_mode() -> str:
@@ -28,6 +33,15 @@ def _vision_enabled() -> bool:
     return os.getenv("VISION_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _get_vad() -> Any:
+    """Load Silero VAD once per process for barge-in / speech onset."""
+    global _vad
+    if _vad is None:
+        _vad = silero.VAD.load()
+        logger.info("Silero VAD loaded")
+    return _vad
+
+
 def build_session(*, tools: list[Any] | None = None) -> AgentSession:
     """Build an AgentSession using Inference, BYOK, or OpenRouter+Gemini."""
     mode = get_model_mode()
@@ -41,7 +55,13 @@ def build_session(*, tools: list[Any] | None = None) -> AgentSession:
     if vision:
         logger.info("VISION_ENABLED — disabling preemptive generation so frames can attach")
 
-    extra: dict[str, Any] = {}
+    extra: dict[str, Any] = {
+        "vad": _get_vad(),
+        # Prevent back-to-back replies from stacking into overlapping audio.
+        "min_consecutive_speech_delay": 0.4,
+        # Composio meta-tools often need search → schemas → execute (+ manage).
+        "max_tool_steps": 10 if load_composio_mcp_server() is not None else 5,
+    }
     if tools:
         extra["tools"] = tools
 
@@ -70,7 +90,9 @@ def build_session(*, tools: list[Any] | None = None) -> AgentSession:
             llm=openai.LLM.with_openrouter(
                 model=model,
                 api_key=os.getenv("OPENROUTER_API_KEY"),
-                site_url=os.getenv("OPENROUTER_SITE_URL", "https://echo-web-tau-ochre.vercel.app"),
+                site_url=os.getenv(
+                    "OPENROUTER_SITE_URL", "https://echo-web-tau-ochre.vercel.app"
+                ),
                 app_name=os.getenv("OPENROUTER_APP_NAME", "Echo Voice Agent"),
             ),
             tts=inference.TTS(

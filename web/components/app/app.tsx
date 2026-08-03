@@ -66,10 +66,9 @@ function createTokenSource(appConfig: AppConfig) {
 export function App({ appConfig }: AppProps) {
   const tokenSource = useMemo(() => createTokenSource(appConfig), [appConfig]);
 
-  const session = useSession(
-    tokenSource,
-    appConfig.agentName ? { agentName: appConfig.agentName } : undefined
-  );
+  // Dispatch only via token room_config.agents (see /api/token). Passing
+  // agentName here as well can spawn a second agent and play two voices at once.
+  const session = useSession(tokenSource);
 
   return (
     <AgentSessionProvider session={session}>

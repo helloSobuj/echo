@@ -8,6 +8,7 @@ from mcp_config import (
     McpServerConfig,
     build_mcp_toolsets,
     load_admin_mcp_servers,
+    load_composio_mcp_server,
     merge_mcp_servers,
     parse_mcp_server_list,
     parse_user_mcp_servers,
@@ -97,3 +98,28 @@ def test_build_mcp_toolsets_skips_disabled():
     toolsets = build_mcp_toolsets(servers)
     assert len(toolsets) == 1
     assert toolsets[0].id == "on"
+
+
+def test_composio_from_env(monkeypatch):
+    monkeypatch.setenv("COMPOSIO_API_KEY", "ck_test")
+    monkeypatch.delenv("COMPOSIO_ENABLED", raising=False)
+    monkeypatch.delenv("COMPOSIO_USER_ID", raising=False)
+    server = load_composio_mcp_server()
+    assert server is not None
+    assert server.id == "composio"
+    assert server.url == "https://connect.composio.dev/mcp"
+    assert server.headers["x-consumer-api-key"] == "ck_test"
+    assert server.headers["x-api-key"] == "ck_test"
+
+
+def test_composio_disabled(monkeypatch):
+    monkeypatch.setenv("COMPOSIO_API_KEY", "ck_test")
+    monkeypatch.setenv("COMPOSIO_ENABLED", "false")
+    assert load_composio_mcp_server() is None
+
+
+def test_load_admin_includes_composio(monkeypatch):
+    monkeypatch.setenv("COMPOSIO_API_KEY", "ck_test")
+    monkeypatch.setenv("MCP_SERVERS", "[]")
+    servers = load_admin_mcp_servers(Path("/nonexistent/mcp_servers.json"))
+    assert any(s.id == "composio" for s in servers)

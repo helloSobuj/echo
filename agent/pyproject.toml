@@ -13,6 +13,7 @@ dependencies = [
     "livekit-plugins-ai-coustics~=0.2",
     "python-dotenv",
     "httpx",
+    "livekit-plugins-silero>=1.6.7",
 ]
 
 [dependency-groups]
